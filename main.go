@@ -1,16 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 
 	"github.com/extintor/bencode"
 )
@@ -50,29 +47,6 @@ func (t *torrent) infoHash() (string, error) {
 	return url.QueryEscape(string(e[:])), nil
 }
 
-func parseTorrentFile(name string) (*torrent, error) {
-	file, err := os.Open(name)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer file.Close() 
-
-	stat, err := file.Stat()
-	if err != nil {
-		return nil, err
-	}
-
-	bs := make([]byte, stat.Size())
-	_, err = bufio.NewReader(file).Read(bs)
-	if err != nil && err != io.EOF {
-		return nil, err
-	}
-
-	torrentFile := &torrent{}
-	bencode.Decode(bs, torrentFile)
-	return torrentFile, nil
-}
-
 func contactBroker(t *torrent) error {
 	infoHash, err := t.infoHash()
 	if err != nil {
@@ -101,14 +75,42 @@ func getClients(cp []byte) []*client {
 	return r
 }
 
+func getCreateHandler() http.HandlerFunc {
+	return func (w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(0); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, fileHeader, err := r.FormFile("file")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		fileContent, err := fileHeader.Open()
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		bs, err := ioutil.ReadAll(fileContent)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		torrentFile := &torrent{}
+		bencode.Decode(bs, torrentFile)
+		log.Println(torrentFile.Announce, torrentFile.Info.Name, torrentFile.Info.PieceLength)
+
+		err = contactBroker(torrentFile)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
 func main() {
-	torrentFile, err := parseTorrentFile("u.torrent")
-	if err != nil {
-		panic(err)
-	}
-	log.Println(torrentFile.Announce, torrentFile.Info.Name, torrentFile.Info.PieceLength)
-	err = contactBroker(torrentFile)
-	if err != nil {
-		panic(err)
-	}
+	http.HandleFunc("/api/v1/create", getCreateHandler())
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
