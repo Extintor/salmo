@@ -6,11 +6,21 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/extintor/bencode"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+	PEER_ID = fmt.Sprintf("CS%s-%d", VERSION, rand.Intn(9999999999999))
+}
+
+const VERSION = "0100"
+var PEER_ID string
 
 type info struct {
 	Length uint64 `bencode:"length"`
@@ -36,6 +46,10 @@ type trackerResponse struct {
 type client struct {
 	host string
 	port string
+}
+
+func (c *client) String() string {
+	return fmt.Sprintf("%s:%s", c.host, c.port)
 }
 
 func (t *torrent) infoHash() (string, error) {
@@ -111,6 +125,7 @@ func getCreateHandler() http.HandlerFunc {
 }
 
 func main() {
+	fmt.Println("Peer_id:", PEER_ID)
 	http.HandleFunc("/api/v1/create", getCreateHandler())
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
